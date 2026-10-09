@@ -1,0 +1,11 @@
+{
+  "name": "ghalla-mandi",
+  "version": "1.0.0",
+  "description": "a leadgure system for ghalla mandi",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Saad",
+  "license": "ISC"
+}
