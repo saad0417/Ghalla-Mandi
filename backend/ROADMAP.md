@@ -23,14 +23,14 @@ Only then move on. A half-finished phase will quietly break the next one.
 
 ### Tasks
 - [ ] `.env` file with `PORT`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRY`
-- [ ] `.gitignore` includes `node_modules`, `.env`
-- [ ] Database connection file (`db/index.js`), connects to Atlas, logs success or failure
-- [ ] `app.js` with express, `express.json()`, cors, cookie-parser
-- [ ] `index.js` starts server only after the database connects
-- [ ] Create `utils/ApiError.js` and `utils/ApiResponse.js`
-- [ ] Create `utils/asyncHandler.js` (wraps async controllers so you stop writing try/catch)
-- [ ] Global error handler middleware in `app.js`
-- [ ] Test: start the server, hit a `/api/v1/health` route, get a JSON response
+- [x] `.gitignore` includes `node_modules`, `.env`
+- [x] Database connection file (`db/index.js`), connects to Atlas, logs success or failure
+- [x] `app.js` with express, `express.json()`, cors, cookie-parser
+- [x] `index.js` starts server only after the database connects
+- [x] Create `utils/ApiError.js` and `utils/ApiResponse.js`
+- [x] Create `utils/asyncHandler.js` (wraps async controllers so you stop writing try/catch)
+- [x] Global error handler middleware in `app.js`
+- [x] Test: start the server, hit a `/api/v1/health` route, get a JSON response
 
 ### Why this first
 Every controller you write after this depends on these four utils. Build them once,

@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import cookieParser from 'cookie-parser'
+import { errorHandler } from './middlewares/error.middleware.js';
 
 const app = express()
 
@@ -16,30 +17,36 @@ app.use(cors({
     origin: function (origin, callback) {
         // allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
-        if (allowedOrigins.indexOf(origin) !== -1 || process.env.CORS_ORIGIN === "*") {
-            return callback(null, true);
-        }
-        return callback(null, true); // fallback allow in dev
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        return callback(new Error("Not allowed by CORS"));
     },
     credentials: true
 }))
 
 
 app.use(express.json({limit: "16kb"})) // to accept json...
-
-
 app.use(express.urlencoded({extended: true, limit: "16kb"})) 
-
-
 app.use(express.static("public"))
-
-
 app.use(cookieParser())
 
 
 
+// Routes goes here...
+// Import Routes
+import healthCheckRouter from './routes/healthcheck.routes.js';
 
 
 
+// Routes Decleration
+app.use("/api/v1/healthcheck", healthCheckRouter)
+
+
+
+
+
+
+
+// error handler must be LAST, after every route, it shows errors in JSON format instaed on tradional HTML format.
+app.use(errorHandler);
 
 export { app }
