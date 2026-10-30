@@ -22,8 +22,8 @@ Only then move on. A half-finished phase will quietly break the next one.
 ## Phase 0 - Project Setup
 
 ### Tasks
-- [x] `.env` file with `PORT`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRY`
-- [x] `.gitignore` includes `node_modules`, `.env`
+- [ ] `.env` file with `PORT`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRY`
+- [ ] `.gitignore` includes `node_modules`, `.env`
 - [ ] Database connection file (`db/index.js`), connects to Atlas, logs success or failure
 - [ ] `app.js` with express, `express.json()`, cors, cookie-parser
 - [ ] `index.js` starts server only after the database connects
@@ -93,7 +93,6 @@ Postman testing.
 - [ ] Hash password with bcrypt in a `pre('save')` hook (only when password changed)
 - [ ] Method on the schema: `isPasswordCorrect()`
 - [ ] Methods: `generateAccessToken()`, `generateRefreshToken()`
-- [ ] Register endpoint
 - [ ] Login endpoint, returns access token + sets refresh token cookie
 - [ ] Logout endpoint
 - [ ] Refresh token endpoint
@@ -101,14 +100,40 @@ Postman testing.
 - [ ] Apply `verifyJWT` to the Bank and Product routes from Phase 1
 - [ ] Test: hitting a protected route without a token must return 401
 
+### No public register endpoint
+There is no sign-up in this system. Nobody creates their own account.
+
+- The first user (the Aarti, role SUPER_ADMIN) is created once by a seed script
+- Everyone else is created from inside the app by the Aarti, in User Management
+- That create-user endpoint sits behind `verifyJWT` and a role check
+
+A public register route on a business ledger would let anyone create an account and
+read the Aarti's financial data. Do not add one "just for testing" either, because
+it will still be there on the day you deploy.
+
+### User Management (build this in the same phase)
+- [ ] Seed script that creates the first SUPER_ADMIN user
+- [ ] Create user endpoint (protected, SUPER_ADMIN or AARTI only)
+- [ ] List users
+- [ ] Update user (name, phone, role, isActive)
+- [ ] Deactivate user (never delete, their `createdBy` records must survive)
+- [ ] Admin resets a user's password
+- [ ] User changes own password (must supply the current one)
+
 ### Roles enum
 SUPER_ADMIN, AARTI, MANAGER, ACCOUNTANT, DATA_ENTRY
+
+### Linking an employee to a customer record
+An employee can also trade as a customer. Create the Customer record first, set
+`isEmployee: true` on it, then point `user.customer` at that customer `_id`.
+Do not type his details into both places.
 
 ### Skip for now
 The `permissions` array. Just store `role`. Fine-grained permissions come in Phase 10.
 
 ### Note
-You already did this in vidtube. Reuse that pattern rather than starting from zero.
+You did the login and JWT part in vidtube. Reuse that pattern, just leave out the
+register route.
 
 ---
 
