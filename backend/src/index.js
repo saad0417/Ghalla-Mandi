@@ -5,6 +5,18 @@ import {app} from './app.js'
 
 dotenv.config({path: './.env'})
 
+// this part checks if all required environment variables are present, if not then it will throw an error.
+const required = ["MONGODB_URI", "ACCESS_TOKEN_SECRET", "REFRESH_TOKEN_SECRET"];
+
+if (process.env.NODE_ENV === "production") {
+  required.push("CORS_ORIGIN");
+}
+
+const missing = required.filter(k => !process.env[k]);
+if (missing.length) {
+  throw new Error(`Missing env variables: ${missing.join(", ")}`);
+}
+
 
 connectDB()
 .then(() => {

@@ -1,42 +1,427 @@
-# Ghalla Mandi Management System - Full Build Roadmap
+# Ghalla Mandi Management System
 
-MERN stack: MongoDB (Atlas), Express, React, Node.
-
-**How to use this file**
-- Work top to bottom. Each phase builds on the one before it.
-- Tick a box only when that piece is tested and working, not when the code is written.
-- Install the "Markdown All in One" extension, put your cursor on a line and press
-  `Alt+C` to tick a box. Or type the `x` yourself.
-- Preview the file with `Ctrl+Shift+V`.
-
-**The one rule for every phase**
-Build the model, then the controller, then the route, then test it in Postman.
-Only then move on. A half-finished phase will quietly break the next one.
+Build roadmap. MERN stack: MongoDB (Atlas), Express, React, Node.
 
 ---
 
-# PART A - BACKEND
+## How to use this file
+
+- Read **Part 0 (Before You Start)** once, now. Come back to it when stuck.
+- Then work through the phases in order. Each one builds on the last.
+- Tick a box only when that piece is **tested and working**, not when the code is written.
+- Every phase ends with a **Done when** test. If it fails, do not move on.
+
+**Ticking boxes:** install "Markdown All in One", put your cursor on the line, press `Alt+C`.
+Or type the `x` yourself. Split view with `Ctrl+K` then `V` gives you code on the left
+(tickable) and preview on the right.
+
+---
+
+## Contents
+
+**Part 0 - Before You Start**
+- Project rules
+- What each model tracks
+- The core business logic
+- Models and subdocuments
+- How images are stored
+- Design decisions and open questions
+
+**Part 1 - Backend** (Phases 0 to 10)
+**Part 2 - Frontend** (Phases 11 to 15)
+**Part 3 - Shipping** (Phases 16 to 17)
+
+---
+---
+
+# PART 0 - BEFORE YOU START
+
+---
+
+## Project rules
+
+These apply to every phase. Breaking any of them causes bugs you will struggle to trace.
+
+**1. All calculations happen in the backend controller.**
+The frontend only displays. Never save a total that came from the browser.
+
+**2. Never hard delete a posted receipt or payment.**
+Cancel it and write a reversing ledger entry. The customer already holds a printed copy.
+
+**3. Balance and ledger always move together.**
+One action, both updates, no exceptions. Break this once and your numbers drift with no
+way to find out why.
+
+**4. Store money consistently.**
+Plain JS numbers lose precision on percentage maths. Either round every result to 2
+decimals with one shared helper, or store paisa as whole integers. Decide on day one.
+
+**5. Test each phase in Postman before starting the next.**
+
+**6. Commit after every working piece.** Small commits, clear messages.
+
+---
+
+## What each model tracks
+
+| Model | What it holds |
+|---|---|
+| `users` | Who can log in. Name, email, hashed password, role. The `customer` field links an employee to his own customer record if he also trades. |
+| `banks` | A lookup list, so cheques and transfers point at a bank record instead of storing the name as free text. |
+| `products` | The crops. Name, unit of measurement, `kgPerUnit` for conversions. |
+| `counters` | One row per code type. Holds the last number used for CUST-0001, RCP-0001, so two users can never get the same code. |
+| `customers` | The people the Aarti trades with. Identity, CNIC, phones, guarantor, security cheques held, and `currentBalance`. |
+| `inventoryMovements` | One receipt. Customer, crops, quantity, rate, commission, charges, and how much is still unsettled. |
+| `loans` | Money lent to a customer. Principal, repaid so far, remaining. |
+| `payments` | One money event. `breakdowns` = HOW the money moved. `allocations` = WHAT it settled. |
+| `ledgerEntries` | The audit trail. One row per balance change. **This is the truth.** `currentBalance` is only a cached copy for speed. |
+
+**Balance sign convention:** positive means the customer owes the Aarti.
+
+---
+
+## The core business logic
+
+Get this wrong and every number in the system is wrong. Read it twice.
+
+### INWARD - a customer brings crop to sell
+
+The Aarti owes the customer money. Commission is **deducted** from what he pays out.
+
+```
+netAmount = itemsSubtotal - commissionAmount - customerCharges
+direction = PAYABLE          (Aarti owes customer)
+```
+
+### OUTWARD - the Aarti sells crop to a buyer
+
+The buyer owes the Aarti money. Commission is **added** to what he collects.
+
+```
+netAmount = itemsSubtotal + commissionAmount + customerCharges
+direction = RECEIVABLE       (customer owes Aarti)
+```
+
+### Commission formulas
+
+| Type | Formula |
+|---|---|
+| `PERCENTAGE` | `itemsSubtotal * commissionValue / 100` |
+| `FIXED_PER_UNIT` | `totalQuantity * commissionValue` |
+| `FIXED_PER_RECEIPT` | `commissionValue` |
+
+### Charges
+
+`chargesTotal` sums **only** the charges where `borneBy = CUSTOMER`.
+Charges with `borneBy = AARTI` are the business's own cost. They never touch the
+customer's bill, but they do reduce profit (see Phase 7).
+
+---
+
+## Models and subdocuments
+
+### What a subdocument is
+
+A model becomes a collection in MongoDB. A subdocument does not. It is a shape you
+define, then nest inside a parent document. No collection of its own, no `_id`, never
+queried directly.
+
+When you finish, Atlas will show **9 collections, not 15**.
+
+One customer document actually looks like this:
+
+```js
+{
+  _id: "67a1...",
+  name: "Ashraf Ali",
+  currentBalance: 45000,
+  securityCheques: [
+    { chequeNumber: "000123", bank: "67b2...", amount: 500000, status: "HELD" },
+    { chequeNumber: "000124", bank: "67b2...", amount: 300000, status: "HELD" }
+  ],
+  guarantor: {
+    name: "Rafiq Ahmed",
+    cnicNumber: "35202-7654321-9",
+    phoneNumbers: ["03001234567"]
+  }
+}
+```
+
+The cheques and guarantor live **inside** the customer. There is no `securitycheques`
+collection anywhere in the database.
+
+### In Mongoose
+
+```js
+// a schema, NOT a model
+const securityChequeSchema = new Schema({
+  chequeNumber: { type: String, required: true },
+  bank: { type: Schema.Types.ObjectId, ref: "Bank" },
+  amount: { type: Number, required: true },
+  status: {
+    type: String,
+    enum: ["HELD","RETURNED","DEPOSITED","CLEARED","BOUNCED"],
+    default: "HELD"
+  }
+}, { _id: false });
+
+// the model, which uses it
+const customerSchema = new Schema({
+  name: { type: String, required: true },
+  securityCheques: [securityChequeSchema],
+  guarantor: guarantorInfoSchema
+}, { timestamps: true });
+
+export const Customer = mongoose.model("Customer", customerSchema);
+```
+
+One `mongoose.model()` call. The subdocument schema never gets one.
+
+### Embed or make a collection?
+
+Embed it if the child is always fetched with its parent and never searched alone.
+Make it a collection if it is shared between parents or needs independent querying.
+
+That is why `banks` is a collection (many cheques point at the same bank) but
+`SecurityCheque` is not (a cheque belongs to one customer and is never looked at
+without him).
+
+### Which subdocument belongs to which model
+
+| Model file | Subdocuments defined inside it |
+|---|---|
+| `customer.model.js` | SecurityCheque, GuarantorInfo |
+| `inventoryMovement.model.js` | MovementItem, MovementCharge |
+| `payment.model.js` | PaymentBreakdown, PaymentAllocation |
+
+The other six models have none.
+
+**Rule:** define each subdocument schema at the top of its parent's file, with
+`{ _id: false }`, and never export it. Then you never have to look this up while coding.
+If a subdocument schema ends up alone in its own file, it should probably have been a
+collection.
+
+### File structure
+
+```
+models/
+  user.model.js
+  bank.model.js
+  product.model.js
+  counter.model.js
+  customer.model.js             <- securityChequeSchema, guarantorInfoSchema
+  inventoryMovement.model.js    <- movementItemSchema, movementChargeSchema
+  loan.model.js
+  payment.model.js              <- paymentBreakdownSchema, paymentAllocationSchema
+  ledgerEntry.model.js
+```
+
+### Subdocument field reference
+
+**`customer.model.js`**
+
+```
+securityCheques: [SecurityCheque]
+  chequeNumber       String
+  bank               ObjectId -> banks
+  accountHolderName  String
+  amount             Number
+  chequeDate         Date      (nullable)
+  image              String    (nullable)
+  status             enum: HELD, RETURNED, DEPOSITED, CLEARED, BOUNCED
+  notes              String    (nullable)
+
+guarantor: GuarantorInfo
+  customer           ObjectId -> customers  (nullable, if guarantor is also a customer)
+  name               String
+  cnicNumber         String    (nullable)
+  phoneNumbers       [String]
+  relation           String    (nullable)
+```
+
+**`inventoryMovement.model.js`**
+
+```
+items: [MovementItem]
+  product            ObjectId -> products
+  productName        String
+  unitOfMeasurement  enum: MAUND, KG, BAG_40KG, BAG_50KG, BAG_100KG, QUINTAL, TON, PIECE
+  quantity           Number
+  ratePerUnit        Number
+  lineTotal          Number
+  qualityNote        String    (nullable)
+
+charges: [MovementCharge]
+  chargeType         enum: LABOUR, BARDANA, TOLAI, MARKET_FEE, TRANSPORT, OTHER
+  label              String    (nullable)
+  amount             Number
+  borneBy            enum: CUSTOMER, AARTI
+```
+
+**`payment.model.js`**
+
+```
+breakdowns: [PaymentBreakdown]
+  method             enum: CASH, CHEQUE, BANK_TRANSFER, ADJUSTMENT
+  amount             Number
+  date               Date
+  bank               ObjectId -> banks  (nullable)
+  chequeNumber       String    (nullable)
+  chequeDate         Date      (nullable)
+  accountHolderName  String    (nullable)
+  transactionId      String    (nullable)
+  image              String    (nullable)
+  clearanceStatus    enum: NOT_APPLICABLE, PENDING, CLEARED, BOUNCED
+  clearedAt          Date      (nullable)
+
+allocations: [PaymentAllocation]
+  targetType         enum: INVENTORY_MOVEMENT, LOAN, OPENING_BALANCE
+  inventoryMovement  ObjectId -> inventoryMovements  (nullable)
+  loan               ObjectId -> loans               (nullable)
+  amount             Number
+```
+
+### Two field choices that look odd but are deliberate
+
+**`productName` and `unitOfMeasurement` are copied into `MovementItem`.**
+If a product is renamed two years from now, the old receipt must still print exactly
+what the customer signed. Never resolve those from `products` when printing an old
+receipt.
+
+**`ADJUSTMENT` in the breakdown method enum.**
+For money that did not physically move, used when a receipt is settled by cancelling a
+loan instead of handing over cash. Without it, the loan-from-crop flow in Phase 6 cannot
+be expressed.
+
+---
+
+## How images are stored
+
+**Do not store images in MongoDB.** Not base64, not Buffer, not GridFS.
+
+- A single document has a hard 16MB limit
+- Base64 inflates a file by about 33%
+- Every customer fetch would drag the images along and slow your list screens
+- Atlas free tier is 512MB total, which a few hundred CNIC photos will eat
+
+**Do this instead:** upload to Cloudinary, store only the returned URL string.
+
+```js
+cnicFrontImage: { type: String }   // "https://res.cloudinary.com/.../abc123.jpg"
+```
+
+The flow:
+1. Multer catches the uploaded file on your server (temp folder)
+2. Upload that file to Cloudinary
+3. Cloudinary returns a `secure_url`
+4. Save that string on the document
+5. Delete the temp file from your server
+
+Every image field in this project is a **String**: `cnicFrontImage`, `cnicBackImage`,
+cheque images, transfer slips.
+
+---
+
+## Design decisions and open questions
+
+### Already decided
+
+| Decision | Reason |
+|---|---|
+| No lot tracing | The system does not track which farmer's wheat went to which buyer. Add an `inventoryAllocations` collection later only if the Aarti asks for it. |
+| `runningBalance` is calculated on read, not stored | Storing it breaks the moment anyone enters a backdated receipt. |
+| Commission settings live on the receipt, not cached on the customer | So the two can never disagree. |
+
+### Open - decide before Phase 6
+
+**Do these loans carry interest or a markup?**
+The schema has no interest field. Mandi advances against future crop are often
+interest-free, so this may be correct. But confirm it, because adding an interest field
+after real loan records exist is painful.
+
+### Can I change the models later?
+
+Mostly yes. MongoDB is flexible. Adding a field is easy, old documents simply will not
+have it.
+
+| Easy to change | Hard to change |
+|---|---|
+| Adding a field | Relationship shape (what references what) |
+| Adding a value to an enum | Splitting one collection into two after real data exists |
+| Adding an index | Changing the meaning of a field you already filled |
+| Renaming something with no real data in it | Changing how money is stored |
+
+Think carefully about structure, but do not freeze. Fixing something in week 3 is far
+better than living with it for the life of the project.
+
+---
+---
+
+# PART 1 - BACKEND
 
 ---
 
 ## Phase 0 - Project Setup
 
+**Goal:** the plumbing every later phase depends on.
+
 ### Tasks
-- [ ] `.env` file with `PORT`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRY`
-- [x] `.gitignore` includes `node_modules`, `.env`
-- [x] Database connection file (`db/index.js`), connects to Atlas, logs success or failure
+
+- [x] `.env` with `PORT`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRY`, `CORS_ORIGIN`
+- [x] `.gitignore` includes `node_modules` and `.env`
+- [x] `db/index.js` connects to Atlas, logs success or failure
 - [x] `app.js` with express, `express.json()`, cors, cookie-parser
-- [x] `index.js` starts server only after the database connects
-- [x] Create `utils/ApiError.js` and `utils/ApiResponse.js`
-- [x] Create `utils/asyncHandler.js` (wraps async controllers so you stop writing try/catch)
-- [x] Global error handler middleware in `app.js`
-- [x] Test: start the server, hit a `/api/v1/health` route, get a JSON response
+- [x] `index.js` starts the server **only after** the database connects
+- [x] `utils/ApiError.js` and `utils/ApiResponse.js`
+- [x] `utils/asyncHandler.js`
+- [x] `middlewares/error.middleware.js`
+- [x] `app.use(errorHandler)` in `app.js`, **after all routes**
+- [x] A `/api/v1/health` route returning JSON
 
-### Why this first
-Every controller you write after this depends on these four utils. Build them once,
-use them 50 times.
+### ApiError and errorHandler are two different files
 
-### Folder structure you should end up with
+- `utils/ApiError.js` is the error **class** you throw
+- `middlewares/error.middleware.js` is the **handler** that catches it and sends JSON
+
+The handler imports the class. Without the handler, a thrown ApiError still reaches the
+browser as Express's default HTML page, and your React frontend cannot read it.
+
+### Why the error handler goes last
+
+Express runs middleware top to bottom and only moves **forward**. When a route throws,
+Express looks ahead for an error handler. If yours sits above the routes, there is
+nothing ahead of the error, so Express falls back to its own HTML page and your handler
+never runs at all.
+
+The handler must take exactly four arguments `(err, req, res, next)`. Express identifies
+error handlers by argument count. Drop `next` and it is treated as normal middleware.
+
+### Async errors need asyncHandler
+
+Express 4 does not catch errors thrown inside an `async` controller. The request just
+hangs forever. Wrap every async controller in `asyncHandler` or your error handler will
+never see those errors.
+
+```js
+const asyncHandler = (requestHandler) => (req, res, next) => {
+  Promise.resolve(requestHandler(req, res, next)).catch(next);
+};
+```
+
+### Check your CORS config
+
+A fallback that allows every origin makes the allowlist pointless. For a financial
+ledger, gate it on the environment:
+
+```js
+if (!origin) return callback(null, true);
+if (allowedOrigins.includes(origin)) return callback(null, true);
+if (process.env.NODE_ENV !== "production") return callback(null, true);
+return callback(new Error("Not allowed by CORS"));
+```
+
+### Folder structure
+
 ```
 src/
   config/
@@ -50,90 +435,110 @@ src/
   index.js
 ```
 
+### Done when
+
+- [x] `GET /api/v1/health` returns JSON
+- [x] A temporary route throwing `new ApiError(400, "test")` returns **JSON**, not
+      Express's HTML page. Delete the route afterwards.
+
 ---
 
-## Phase 1 - Simple Masters (Bank and Product)
+## Phase 1 - Banks and Products
 
 **Goal:** get your CRUD pattern right on something that cannot go wrong.
 
-### Bank
+### Tasks
+
+**Bank**
 - [ ] `Bank` model: bankName (unique), shortName, branchName, branchCode, isActive, createdBy
-- [ ] Create bank
-- [ ] List banks (with search by name)
-- [ ] Get single bank
-- [ ] Update bank
-- [ ] Soft delete (set `isActive: false`, never actually delete)
-- [ ] Test all 5 in Postman
+- [ ] Create
+- [ ] List (with search by name)
+- [ ] Get one
+- [ ] Update
+- [ ] Soft delete (`isActive: false`, never actually delete)
 
-### Product
-- [ ] `Product` model: productName (unique), unitOfMeasurement (enum), kgPerUnit, isActive, createdBy
-- [ ] Same 5 endpoints
-- [ ] Test in Postman
+**Product**
+- [ ] `Product` model: productName (unique), unitOfMeasurement (enum), kgPerUnit (nullable),
+      isActive, createdBy
+- [ ] Same five endpoints
 
-### Enum to use
+### Enum
+
 `unitOfMeasurement`: MAUND, KG, BAG_40KG, BAG_50KG, BAG_100KG, QUINTAL, TON, PIECE
 
-### Why these first
-No references to other collections. Nothing to go wrong. Once this pattern works,
-you copy it for everything else in the project.
+`kgPerUnit` is nullable because it means nothing when the unit is PIECE.
 
-### What you learn here
-Mongoose schemas, enums, unique indexes, controller structure, consistent API responses,
-Postman testing.
+### Why start here
+
+No references to other collections, nothing to go wrong. Once this pattern works, you
+copy it for everything else in the project. This phase teaches you Mongoose schemas,
+enums, unique indexes, controller structure, consistent API responses and Postman.
+
+### Done when
+
+- [ ] All ten endpoints tested in Postman
+- [ ] A duplicate `bankName` is rejected by the database, not just by your code
 
 ---
 
-## Phase 2 - Authentication
+## Phase 2 - Authentication and User Management
 
-**Goal:** know who is logged in, and block everyone else.
+**Goal:** know who is logged in, block everyone else.
 
 ### Tasks
-- [ ] `User` model: name, email (unique), passwordHash, phone, role (enum), isActive,
-      refreshToken, lastLoginAt
-- [ ] Hash password with bcrypt in a `pre('save')` hook (only when password changed)
-- [ ] Method on the schema: `isPasswordCorrect()`
-- [ ] Methods: `generateAccessToken()`, `generateRefreshToken()`
-- [ ] Login endpoint, returns access token + sets refresh token cookie
-- [ ] Logout endpoint
-- [ ] Refresh token endpoint
+
+**Auth**
+- [ ] `User` model: name, email (unique), passwordHash, phone, role (enum),
+      permissions (enum array), isActive, refreshToken, lastLoginAt, customer (nullable)
+- [ ] Hash password with bcrypt in a `pre('save')` hook, **only when password changed**
+- [ ] Schema method `isPasswordCorrect()`
+- [ ] Schema methods `generateAccessToken()`, `generateRefreshToken()`
+- [ ] Login, returns access token and sets a refresh token cookie
+- [ ] Logout
+- [ ] Refresh token
 - [ ] `verifyJWT` middleware
-- [ ] Apply `verifyJWT` to the Bank and Product routes from Phase 1
-- [ ] Test: hitting a protected route without a token must return 401
+- [ ] Apply `verifyJWT` to the Phase 1 routes
 
-### No public register endpoint
-There is no sign-up in this system. Nobody creates their own account.
-
-- The first user (the Aarti, role SUPER_ADMIN) is created once by a seed script
-- Everyone else is created from inside the app by the Aarti, in User Management
-- That create-user endpoint sits behind `verifyJWT` and a role check
-
-A public register route on a business ledger would let anyone create an account and
-read the Aarti's financial data. Do not add one "just for testing" either, because
-it will still be there on the day you deploy.
-
-### User Management (build this in the same phase)
-- [ ] Seed script that creates the first SUPER_ADMIN user
-- [ ] Create user endpoint (protected, SUPER_ADMIN or AARTI only)
+**User management**
+- [ ] Seed script creating the first SUPER_ADMIN
+- [ ] Create user (protected, SUPER_ADMIN or AARTI only)
 - [ ] List users
 - [ ] Update user (name, phone, role, isActive)
 - [ ] Deactivate user (never delete, their `createdBy` records must survive)
 - [ ] Admin resets a user's password
 - [ ] User changes own password (must supply the current one)
 
-### Roles enum
+### There is no public register endpoint
+
+Nobody creates their own account.
+
+- The first user (the Aarti, SUPER_ADMIN) comes from a seed script
+- Everyone else is created from inside the app by the Aarti
+- That endpoint sits behind `verifyJWT` plus a role check
+
+A public register route on a business ledger lets anyone create an account and read the
+Aarti's financial data. Do not add one "just for testing" either, because it will still
+be there on the day you deploy.
+
+### Roles
+
 SUPER_ADMIN, AARTI, MANAGER, ACCOUNTANT, DATA_ENTRY
 
-### Linking an employee to a customer record
-An employee can also trade as a customer. Create the Customer record first, set
-`isEmployee: true` on it, then point `user.customer` at that customer `_id`.
-Do not type his details into both places.
+### Linking an employee who also trades
+
+Create the Customer record first, set `isEmployee: true` on it, then point
+`user.customer` at that customer `_id`. Do not type his details into both places.
 
 ### Skip for now
-The `permissions` array. Just store `role`. Fine-grained permissions come in Phase 10.
 
-### Note
-You did the login and JWT part in vidtube. Reuse that pattern, just leave out the
-register route.
+Enforcing the `permissions` array. Define it in the model as an enum array so the data
+shape is right, but check `role` only. The `checkPermission` middleware comes in Phase 10.
+
+### Done when
+
+- [ ] A protected route without a token returns 401
+- [ ] Login returns a token you can use on the Phase 1 routes
+- [ ] No route anywhere creates a user without authentication
 
 ---
 
@@ -142,35 +547,39 @@ register route.
 **Goal:** the people the Aarti trades with.
 
 ### Tasks
-- [ ] `Customer` model with all fields:
+
+- [ ] Define `securityChequeSchema` and `guarantorInfoSchema` at the top of
+      `customer.model.js` with `{ _id: false }`, do not export them
+- [ ] `Customer` model:
   - customerCode (auto, unique), name, fatherName
   - cnicNumber (unique + sparse), cnicFrontImage, cnicBackImage
-  - phoneNumbers (array of strings), address
+  - phoneNumbers (array), address
   - customerType enum: SELLER, BUYER, BOTH
-  - isEmployee (boolean)
+  - isEmployee
   - openingBalance, openingBalanceDate, currentBalance
-  - securityCheques (embedded array)
-  - guarantor (embedded object)
+  - securityCheques (array of SecurityCheque), guarantor (GuarantorInfo)
   - creditLimit, isActive, createdBy, updatedBy
-- [ ] `Counter` model + a `generateCode()` util for CUST-0001, CUST-0002...
-- [ ] Create customer. On create, set `currentBalance = openingBalance`
-- [ ] List customers with search (name, CNIC, phone, code) and pagination
-- [ ] Get single customer
-- [ ] Update customer
-- [ ] Deactivate customer (never delete)
-- [ ] Test in Postman
+- [ ] `Counter` model and a `generateCode()` util for CUST-0001, CUST-0002...
+- [ ] Create customer, setting `currentBalance = openingBalance`
+- [ ] List with search (name, CNIC, phone, code) and pagination
+- [ ] Get one
+- [ ] Update
+- [ ] Deactivate (never delete)
 
-### Important detail
-`cnicNumber` must be `{ unique: true, sparse: true }`. Sparse means customers without a
-CNIC can still be saved. Without sparse, the second customer with no CNIC will fail
-because `null` counts as a duplicate.
+### cnicNumber needs sparse, not just unique
 
-### Skip for now
-Real image uploads. Store a placeholder string like `"pending"`. Uploads come in Phase 10.
+```js
+cnicNumber: { type: String, unique: true, sparse: true }
+```
 
-### Code generation, how it works
-Never use `Customer.countDocuments() + 1`. Two people creating a customer at the same
-moment would get the same code. Use the counters collection:
+Without `sparse`, the **second** customer with no CNIC fails, because `null` counts as a
+duplicate of `null`.
+
+### Never generate codes with countDocuments
+
+Two people creating a customer at the same moment would get the same code. Use the
+counters collection:
+
 ```js
 const c = await Counter.findOneAndUpdate(
   { _id: 'customer' },
@@ -179,141 +588,139 @@ const c = await Counter.findOneAndUpdate(
 );
 ```
 
+### Skip for now
+
+Real image uploads. Store a placeholder string like `"pending"`. Uploads come in Phase 10.
+
+### Done when
+
+- [ ] Two customers with no CNIC can both be saved
+- [ ] Codes increment correctly and never repeat
+- [ ] Search finds a customer by partial name and by phone
+
 ---
 
-## Phase 4 - Receipts and Ledger (THE CORE)
+## Phase 4 - Receipts and Ledger
+
+**This is the core of the system. Everything else depends on it. Go slowly.**
 
 **Goal:** record a crop purchase or sale and have the customer's balance come out right.
 
-This is the heart of the system. Everything else depends on it. Go slowly here.
-
-### Understand the business logic first
-
-**INWARD** = customer brings crop to the Aarti to sell.
-The Aarti owes the customer money. Commission is **deducted** from what he pays out.
-```
-netAmount = itemsSubtotal - commissionAmount - customerCharges
-direction = PAYABLE  (Aarti owes customer)
-```
-
-**OUTWARD** = Aarti sells crop to a buyer.
-The buyer owes the Aarti money. Commission is **added** to what he collects.
-```
-netAmount = itemsSubtotal + commissionAmount + customerCharges
-direction = RECEIVABLE  (customer owes Aarti)
-```
-
-Get this backwards and every number in the system will be wrong.
+Re-read "The core business logic" in Part 0 before starting.
 
 ### Tasks
-- [ ] `InventoryMovement` model (receipt)
+
+- [ ] Define `movementItemSchema` and `movementChargeSchema` at the top of
+      `inventoryMovement.model.js`
+- [ ] `InventoryMovement` model:
   - receiptNumber (auto, unique), customer, movementType enum, date, vehicleNumber, notes
-  - items array: product, productName, unitOfMeasurement, quantity, ratePerUnit, lineTotal
-  - charges array: chargeType enum, label, amount, borneBy enum
+  - items (array of MovementItem), charges (array of MovementCharge)
   - itemsSubtotal, commissionType enum, commissionValue, commissionAmount
   - chargesTotal, netAmount, direction enum
   - amountSettled, amountRemaining
-  - status enum (DRAFT / POSTED / CANCELLED)
-  - paymentStatus enum (UNPAID / PARTIAL / SETTLED)
-- [ ] `LedgerEntry` model
+  - status enum: DRAFT, POSTED, CANCELLED
+  - paymentStatus enum: UNPAID, PARTIAL, SETTLED
+- [ ] `LedgerEntry` model:
   - customer, date, entryType enum, sourceType enum, sourceId
-  - debit, credit, runningBalance, narration
+  - debit, credit, narration
   - isReversed, reversalOf, createdBy
-- [ ] Create receipt controller, in this order:
-  1. Validate the customer exists and is active
-  2. For each item: `lineTotal = quantity * ratePerUnit`
-  3. `itemsSubtotal` = sum of all lineTotals
-  4. Calculate `commissionAmount` based on commissionType
-  5. `chargesTotal` = sum of charges where `borneBy = CUSTOMER`
-  6. Calculate `netAmount` and `direction` using the rules above
-  7. Set `amountSettled = 0`, `amountRemaining = netAmount`, `paymentStatus = UNPAID`
-  8. Save the receipt
-  9. Write a LedgerEntry row
-  10. Update `customer.currentBalance`
+- [ ] Create receipt controller (order below)
 - [ ] List receipts with filters (customer, date range, movementType, paymentStatus)
-- [ ] Get single receipt (populated with customer and product names)
-- [ ] Cancel receipt (status = CANCELLED, write a reversing ledger entry, fix the balance)
-- [ ] Customer ledger endpoint: all entries for one customer sorted by date, with
-      running balance
-- [ ] Add index: `ledgerEntrySchema.index({ customer: 1, date: 1 })`
-- [ ] Add index: `inventoryMovementSchema.index({ customer: 1, date: -1 })`
+- [ ] Get one, populated with customer and product names
+- [ ] Cancel receipt: status CANCELLED, reversing ledger entry, fix the balance
+- [ ] Customer ledger endpoint
+- [ ] Index: `ledgerEntrySchema.index({ customer: 1, date: 1 })`
+- [ ] Index: `inventoryMovementSchema.index({ customer: 1, date: -1 })`
 
-### Commission types
-- PERCENTAGE: `commissionAmount = itemsSubtotal * commissionValue / 100`
-- FIXED_PER_UNIT: `commissionAmount = totalQuantity * commissionValue`
-- FIXED_PER_RECEIPT: `commissionAmount = commissionValue`
+### Create receipt, exact order
 
-### Charge types
-LABOUR, BARDANA, TOLAI, MARKET_FEE, TRANSPORT, OTHER
+1. Validate the customer exists and is active
+2. For each item: `lineTotal = quantity * ratePerUnit`
+3. `itemsSubtotal` = sum of all lineTotals
+4. Calculate `commissionAmount` from `commissionType`
+5. `chargesTotal` = sum of charges where `borneBy = CUSTOMER` **only**
+6. Calculate `netAmount` and `direction` using the INWARD/OUTWARD rules
+7. Set `amountSettled = 0`, `amountRemaining = netAmount`, `paymentStatus = UNPAID`
+8. Save the receipt
+9. Write a LedgerEntry row
+10. Update `customer.currentBalance`
 
-### Stop and test properly here
-- Create an INWARD receipt. Do the maths on paper. Compare.
-- Create an OUTWARD receipt for the same customer. Check the balance moved the other way.
-- Create a third. Check the running balance in the ledger is correct across all three.
-- Cancel one. Check the balance went back to what it was.
+Steps 8, 9 and 10 belong together. Never do one without the others.
 
-If the balance is wrong at this stage, stop and fix it. Do not build Phase 5 on top of
-broken maths.
+### Running balance is calculated, not stored
 
-### The rule you must never break
-**Never change a balance without writing a ledger row in the same action.**
-Break this once and your numbers will drift, and you will have no way to trace why.
+Do not put a `runningBalance` field on LedgerEntry. If anyone enters a backdated
+receipt, every stored value after it silently becomes wrong.
+
+Calculate it when you read the ledger: start from the opening balance and add each
+debit and credit as you walk the sorted list.
+
+### Done when
+
+- [ ] An INWARD receipt matches your hand calculation
+- [ ] An OUTWARD receipt for the same customer moves the balance the other way
+- [ ] A third receipt leaves the running balance correct across all three
+- [ ] Cancelling one puts the balance back exactly where it was
+
+**If the balance is wrong here, stop and fix it. Do not build Phase 5 on broken maths.**
 
 ---
 
 ## Phase 5 - Payments
 
-**Goal:** record money coming in and going out, and settle receipts with it.
+**Goal:** record money in and out, and settle receipts with it.
 
 ### Tasks
-- [ ] `Payment` model
+
+- [ ] Define `paymentBreakdownSchema` and `paymentAllocationSchema` at the top of
+      `payment.model.js`
+- [ ] `Payment` model:
   - voucherNumber (auto, unique), customer
-  - direction enum: RECEIVED (money in) / PAID (money out)
+  - direction enum: RECEIVED (money in), PAID (money out)
   - purpose enum: RECEIPT_SETTLEMENT, LOAN_DISBURSEMENT, LOAN_REPAYMENT, ON_ACCOUNT, ADVANCE
   - date, totalAmount
-  - breakdowns array (how the money moved)
-  - allocations array (what the money is settling)
+  - breakdowns (array of PaymentBreakdown)
+  - allocations (array of PaymentAllocation)
   - unallocatedAmount, status enum, notes
-- [ ] Validation: sum of `breakdowns` must equal `totalAmount`
-- [ ] Validation: sum of `allocations` must not exceed `totalAmount`
-- [ ] Create payment controller:
-  1. Validate the two sums above
-  2. Save the payment
-  3. For each allocation, update that receipt's `amountSettled`, `amountRemaining`
-     and `paymentStatus`
-  4. Write a LedgerEntry row
-  5. Update `customer.currentBalance`
+  - `linkedPayment` (ref to another payment, nullable) - used in Phase 6
+- [ ] Create payment controller (order below)
 - [ ] List payments with filters
-- [ ] Get single payment
-- [ ] Cancel payment (reverse the allocations, reverse the ledger, fix the balance)
-- [ ] Add index: `paymentSchema.index({ customer: 1, date: -1 })`
+- [ ] Get one
+- [ ] Cancel payment: reverse allocations, reverse ledger, fix balance
+- [ ] Index: `paymentSchema.index({ customer: 1, date: -1 })`
 
-### Breakdown fields
-```
-method enum: CASH / CHEQUE / BANK_TRANSFER
-amount, date
-if CHEQUE:        bank, chequeNumber, chequeDate, accountHolderName, image
-if BANK_TRANSFER: bank, transactionId, accountHolderName, image
-if CASH:          nothing extra
-clearanceStatus enum: NOT_APPLICABLE / PENDING / CLEARED / BOUNCED
-```
+### Create payment, exact order
 
-### Allocation fields
-```
-targetType enum: INVENTORY_MOVEMENT / LOAN / OPENING_BALANCE
-inventoryMovement (ref, nullable)
-loan (ref, nullable)
-amount
-```
+1. Validate the two sum rules below
+2. Save the payment
+3. For each allocation, update that receipt's `amountSettled`, `amountRemaining`
+   and `paymentStatus`
+4. Write a LedgerEntry row
+5. Update `customer.currentBalance`
 
-### Why allocations is an array
-One payment of 100,000 can settle receipt A for 60,000 and receipt B for 40,000.
-A single receipt reference cannot express that. Do not simplify this, you will have to
-rewrite it.
+### The two validation rules are different
 
-### Why breakdowns is an array
-The customer pays 50,000 cash plus a cheque of 150,000 in one go. That is one payment,
-two breakdowns.
+| Rule | Why |
+|---|---|
+| `breakdowns` must sum to **exactly** `totalAmount` | Every rupee came from somewhere |
+| `allocations` must sum to **at most** `totalAmount` | The remainder sits in `unallocatedAmount` as an advance |
+
+### Why both are arrays
+
+**`allocations`** - one payment of 100,000 can settle receipt A for 60,000 and receipt B
+for 40,000. A single receipt reference cannot express that.
+
+**`breakdowns`** - the customer pays 50,000 cash plus a 150,000 cheque in one go. One
+payment, two breakdowns.
+
+Do not simplify either to a single value. You will have to rewrite it.
+
+### Done when
+
+- [ ] A payment settling two receipts updates both correctly
+- [ ] A payment with mismatched breakdowns is rejected
+- [ ] An overpayment leaves the correct `unallocatedAmount`
+- [ ] Cancelling a payment restores both the receipts and the balance
 
 ---
 
@@ -321,76 +728,119 @@ two breakdowns.
 
 **Goal:** track money lent to a customer and repaid over time.
 
+### Decide before you start
+
+**Do these loans carry interest or a markup?** The schema has no interest field.
+Confirm this with whoever knows the real business. Adding one after real loan records
+exist is painful.
+
 ### Tasks
+
 - [ ] `Loan` model: loanNumber (auto), customer, loanDate, principalAmount,
       repaidAmount, remainingAmount, expectedSettlementProduct, dueDate,
       status enum, disbursementPayment, notes
-- [ ] Give loan: creates a Loan + a Payment (direction PAID) + a LedgerEntry
-- [ ] Repay loan by cash/cheque: a Payment (direction RECEIVED) allocated to the loan
-- [ ] On every repayment: update `repaidAmount`, `remainingAmount` and `status`
+- [ ] Give loan: creates a Loan, a Payment (direction PAID) and a LedgerEntry
+- [ ] Repay by cash or cheque: a Payment (direction RECEIVED) allocated to the loan
+- [ ] Every repayment updates `repaidAmount`, `remainingAmount` and `status`
 - [ ] List loans with filters (customer, status)
-- [ ] Add index: `loanSchema.index({ customer: 1, status: 1 })`
+- [ ] Settle-from-crop flow (below)
+- [ ] Index: `loanSchema.index({ customer: 1, status: 1 })`
 
-### Loan status enum
+### Status enum
+
 ACTIVE, PARTIALLY_REPAID, CLOSED, WRITTEN_OFF
 
-### The hard part, do it last
-**Repaying a loan from crop proceeds.** The customer brings wheat worth 200,000, and he
-already owes 50,000 on a loan. Instead of paying him 200,000 and collecting 50,000 back,
-the Aarti pays him 150,000 and marks the loan closed.
+### The hard part - repaying a loan from crop proceeds
 
-How to build it:
-1. Create the INWARD receipt as normal (netAmount 200,000, direction PAYABLE)
-2. Create one Payment, direction PAID, totalAmount 200,000
-3. Two allocations on that payment:
-   - 50,000 to the loan
-   - 150,000 to... nothing, it goes out as cash to the customer
-4. Breakdown shows 150,000 CASH going out
-5. Ledger gets rows for both
+A customer brings wheat worth 200,000 and already owes 50,000 on a loan. Instead of
+handing him 200,000 then collecting 50,000 back, the Aarti pays him 150,000 and closes
+the loan.
 
-Think about it carefully before writing it. This is where most people get confused.
+**This is two payments, not one.** A single payment cannot satisfy both validation rules.
+
+```
+Receipt     INWARD, netAmount 200,000, direction PAYABLE
+
+Payment A   direction PAID      totalAmount 200,000
+  breakdowns:   CASH 150,000 + ADJUSTMENT 50,000     -> sums to 200,000  ✓
+  allocations:  receipt 200,000                       -> receipt settled
+
+Payment B   direction RECEIVED  totalAmount 50,000
+  breakdowns:   ADJUSTMENT 50,000                     -> sums to 50,000   ✓
+  allocations:  loan 50,000                           -> loan reduced
+```
+
+Cash that actually left the drawer: 150,000. The two ADJUSTMENT lines cancel each other
+out. Both payments pass validation. The ledger stays balanced.
+
+This is why `ADJUSTMENT` exists in the breakdown method enum.
+
+- [ ] Set `linkedPayment` on both payments, pointing at each other
+- [ ] Cancelling either one must cancel both
+
+Without `linkedPayment`, nothing in the data says these two belong together, and
+cancelling one would leave the loan reduced but the receipt unsettled.
+
+### Done when
+
+- [ ] Giving a loan increases what the customer owes
+- [ ] A cash repayment reduces `remainingAmount` and eventually sets status CLOSED
+- [ ] The settle-from-crop flow leaves the receipt settled, the loan closed, and the
+      balance showing only the 150,000 that actually changed hands
 
 ---
 
 ## Phase 7 - Reports
 
-**Goal:** the screens the Aarti will actually look at every day.
+**Goal:** the screens the Aarti looks at every day.
 
 ### Tasks
-- [ ] Customer ledger: all entries for one customer, date filter, running balance,
+
+- [ ] Customer ledger: entries for one customer, date filter, running balance,
       opening and closing balance for the period
-- [ ] Customer balance list: every customer with current balance, sorted by amount owed
-- [ ] Outstanding receipts: all receipts with paymentStatus UNPAID or PARTIAL
-- [ ] Outstanding loans: all loans with status ACTIVE or PARTIALLY_REPAID
-- [ ] Commission earned: total commission for a date range, grouped by month
-- [ ] Daily summary: receipts in, receipts out, money in, money out, commission, for one day
+- [ ] Customer balance list: every customer, sorted by amount owed
+- [ ] Outstanding receipts: paymentStatus UNPAID or PARTIAL
+- [ ] Outstanding loans: status ACTIVE or PARTIALLY_REPAID
+- [ ] Commission earned: date range, grouped by month
+- [ ] Aarti's own expenses: sum of charges where `borneBy = AARTI`, same range
+- [ ] Net profit: commission minus those expenses
+- [ ] Daily summary: receipts in and out, money in and out, commission, for one day
 - [ ] Stock summary: quantity purchased vs sold per product
 
-### Build these with aggregation pipelines
-This is where you learn MongoDB aggregation properly: `$match`, `$group`, `$lookup`,
-`$sort`, `$project`.
+### Why the expense report matters
+
+Charges with `borneBy: AARTI` are correctly kept off the customer's bill. But if no
+report sums them, your commission figure overstates what the business actually earned.
+**Commission is revenue, not profit.**
+
+### Build these with aggregation
+
+This is where you learn `$match`, `$group`, `$lookup`, `$sort` and `$project` properly.
+
+### Done when
+
+- [ ] Every report matches a hand calculation on a small dataset
+- [ ] Net profit is visibly lower than commission earned when AARTI charges exist
 
 ---
 
 ## Phase 8 - Data Integrity
 
-**Goal:** stop the system from producing numbers that do not add up.
+**Goal:** stop the system producing numbers that do not add up.
 
 ### Tasks
-- [ ] Decide how you store money and apply it everywhere:
-      either round every result to 2 decimals with a helper, or store paisa as integers
-- [ ] A `recalculateBalance(customerId)` utility that rebuilds the balance from ledger
-      entries, so you can repair drift if it ever happens
-- [ ] A reconciliation endpoint: compare `customer.currentBalance` against the sum of
-      ledger entries, report any mismatch
-- [ ] Wrap multi-step writes (receipt + ledger + balance) in a MongoDB transaction
-      so a half-failure cannot leave the data inconsistent
-- [ ] Validation layer on every create/update endpoint (express-validator or zod)
-- [ ] Never hard delete anything that has been posted
 
-### About transactions
-Atlas runs as a replica set, so transactions work there. A plain local `mongod` does not
-support them. If you ever run locally, start it as a single-node replica set.
+- [ ] Apply your money-storage decision (rule 4) everywhere
+- [ ] `recalculateBalance(customerId)` utility rebuilding the balance from ledger entries
+- [ ] Reconciliation endpoint comparing `currentBalance` against the ledger sum
+- [ ] Wrap multi-step writes (receipt + ledger + balance) in a transaction
+- [ ] Validation layer on every create and update endpoint (express-validator or zod)
+- [ ] Audit the codebase: confirm nothing posted can be hard deleted
+
+### Transactions
+
+Atlas runs as a replica set, so transactions work there. A plain local `mongod` does
+not support them. If you ever run locally, start it as a single-node replica set.
 
 ```js
 const session = await mongoose.startSession();
@@ -406,180 +856,219 @@ try {
 }
 ```
 
+### Done when
+
+- [ ] Reconciliation reports zero mismatches across all customers
+- [ ] Killing the server mid-receipt leaves no half-written data
+
 ---
 
 ## Phase 9 - Seed Data and Testing
 
-### Tasks
-- [ ] A seed script that creates: 1 admin user, 3 banks, 5 products, 10 customers
-- [ ] A second script that creates 30 realistic receipts and payments across those customers
-- [ ] A Postman collection with every endpoint saved, organised by module
-- [ ] Postman environment variables for base URL and token
-- [ ] Manually verify: pick one customer, add up his receipts and payments on paper,
-      compare with the ledger
+**Goal:** realistic data to build the frontend against.
 
-### Why this matters
-When you build the frontend you need data on screen. Clicking through Postman to create
+### Tasks
+
+- [ ] Seed script: 1 admin user, 3 banks, 5 products, 10 customers
+- [ ] Second script: 30 realistic receipts and payments across those customers
+- [ ] Postman collection with every endpoint, organised by module
+- [ ] Postman environment variables for base URL and token
+- [ ] Pick one customer, add up his receipts and payments on paper, compare to the ledger
+
+### Why bother
+
+When you start the frontend you need data on screen. Clicking through Postman to create
 30 records by hand every time you reset the database will waste hours.
+
+### Done when
+
+- [ ] One command resets and repopulates the whole database
+- [ ] The hand calculation matches the ledger exactly
 
 ---
 
 ## Phase 10 - Backend Polish
 
+**Goal:** everything deferred from earlier phases.
+
 ### Tasks
-- [ ] Image uploads: Multer + Cloudinary for CNIC, cheques, transfer slips
-- [ ] `permissions` array on User + a `checkPermission(permission)` middleware
-- [ ] Cheque clearance: mark a cheque CLEARED or BOUNCED, and on bounce write a
-      reversing ledger entry
+
+- [ ] Image uploads: Multer and Cloudinary for CNIC, cheques, transfer slips
+- [ ] Signed or authenticated Cloudinary delivery
+- [ ] `checkPermission(permission)` middleware, enforcing the permissions array
+- [ ] Cheque clearance: mark CLEARED or BOUNCED, writing a reversing ledger entry on bounce
 - [ ] Pagination on every list endpoint (`mongoose-aggregate-paginate-v2`)
-- [ ] Rate limiting on the login route
+- [ ] Rate limiting on login
 - [ ] Request logging (morgan or winston)
 - [ ] Input sanitisation against injection
 
+### Private images
+
+CNIC photos and cheque images are private legal documents, not public photos.
+Cloudinary's default upload is readable by anyone holding the URL. Use signed URLs or
+authenticated delivery so a leaked link does not expose someone's CNIC.
+
 ### Permissions enum
+
 CUSTOMER_VIEW, CUSTOMER_MANAGE, PRODUCT_MANAGE, MOVEMENT_VIEW, MOVEMENT_MANAGE,
 MOVEMENT_CANCEL, PAYMENT_VIEW, PAYMENT_MANAGE, LOAN_VIEW, LOAN_MANAGE, BANK_MANAGE,
 REPORT_VIEW, USER_MANAGE
 
+### Done when
+
+- [ ] A DATA_ENTRY user cannot cancel a receipt
+- [ ] A bounced cheque correctly reverses the customer's balance
+
+---
 ---
 
-# PART B - FRONTEND (React)
+# PART 2 - FRONTEND (React)
 
-Do not start this until the backend works end to end in Postman.
+**Do not start until the backend works end to end in Postman.**
 
 ---
 
 ## Phase 11 - Frontend Setup
 
 ### Tasks
-- [ ] Vite + React project
+
+- [ ] Vite and React project
 - [ ] Tailwind CSS
 - [ ] React Router with a protected route wrapper
 - [ ] Axios instance with base URL and token interceptor
 - [ ] Redux Toolkit or Context for auth state
-- [ ] Layout: sidebar, header, main content area
+- [ ] Layout: sidebar, header, main content
 - [ ] Toast notifications (react-hot-toast)
+
+### Done when
+
+- [ ] Hitting a protected route while logged out redirects to login
 
 ---
 
 ## Phase 12 - Core Screens
 
 ### Tasks
+
 - [ ] Login page
 - [ ] Dashboard: today's totals, total receivable, total payable, outstanding loans
-- [ ] Customer list: searchable table with balance column
-- [ ] Add/edit customer form (react-hook-form)
+- [ ] Customer list: searchable table with a balance column
+- [ ] Add and edit customer form (react-hook-form)
 - [ ] Customer detail page with ledger table
+- [ ] User management: create employee, assign role, deactivate
+
+### Done when
+
+- [ ] You can log in, create a customer and see him in the list without touching Postman
 
 ---
 
-## Phase 13 - The Receipt Screen (hardest screen)
+## Phase 13 - The Receipt Screen
+
+**The hardest screen in the project. Budget real time for it.**
 
 ### Tasks
+
 - [ ] Customer picker with search
 - [ ] Movement type toggle (INWARD / OUTWARD)
-- [ ] Dynamic item rows: add row, remove row, pick product, enter quantity and rate
+- [ ] Dynamic item rows: add, remove, pick product, enter quantity and rate
 - [ ] Live `lineTotal` per row as the user types
-- [ ] Live subtotal, commission and net amount display
-- [ ] Charges section
+- [ ] Live subtotal, commission and net amount
+- [ ] Charges section with the `borneBy` toggle
 - [ ] Save and print
 
-### Critical rule
-The frontend calculates totals **only for display**. When you submit, send the raw items
-and let the backend calculate everything again. Never save a total that came from the
-browser.
+### The rule for this screen
+
+The frontend calculates totals **only for display**. On submit, send the raw items and
+let the backend calculate everything again. Never save a total that came from the browser.
+
+### Done when
+
+- [ ] Typing a quantity updates the net amount instantly
+- [ ] The saved receipt's totals match what was on screen
+- [ ] Switching INWARD to OUTWARD flips the commission direction visibly
 
 ---
 
 ## Phase 14 - Payments and Loans Screens
 
 ### Tasks
-- [ ] Payment form with dynamic breakdown rows (cash / cheque / bank)
-- [ ] Allocation section showing that customer's unpaid receipts with checkboxes
-- [ ] Running display: allocated so far vs total, so the user cannot over-allocate
+
+- [ ] Payment form with dynamic breakdown rows (cash, cheque, bank, adjustment)
+- [ ] Live check that breakdowns sum to the total, blocking save if they do not
+- [ ] Allocation section listing that customer's unpaid receipts
+- [ ] Running display of allocated vs total, so the user cannot over-allocate
 - [ ] Loan list and give-loan form
 - [ ] Loan repayment form
+- [ ] Settle-from-crop flow, creating the two linked payments from Phase 6
+
+### Done when
+
+- [ ] A payment settling two receipts can be entered entirely from the UI
+- [ ] The settle-from-crop flow works without the user understanding it is two payments
 
 ---
 
 ## Phase 15 - Reports and Printing
 
 ### Tasks
+
 - [ ] Customer ledger screen with date filter and print button
-- [ ] Printable receipt layout (A5, clean, Urdu labels where it helps)
+- [ ] Printable receipt layout (A5, clean, Urdu labels where they help)
 - [ ] Outstanding receipts report
 - [ ] Outstanding loans report
-- [ ] Commission report
+- [ ] Commission and profit report
 - [ ] Export to Excel for the main reports
 
-### Keep this in mind
+### Who this is for
+
 The real Aarti has used a paper register for 30 years. The screen must be simple,
 readable in Urdu, print a receipt he can hand to the customer, and never show a balance
-he disagrees with. If he has to call you to understand a number, the software has failed.
+he disagrees with. **If he has to call you to understand a number, the software has
+failed.**
+
+### Done when
+
+- [ ] A printed receipt is legible and complete on A5 paper
+- [ ] Someone unfamiliar with the project can read a customer ledger unaided
 
 ---
+---
 
-# PART C - SHIPPING
+# PART 3 - SHIPPING
 
 ---
 
 ## Phase 16 - Deployment
 
 ### Tasks
-- [ ] Environment variables set properly for production
-- [ ] Backend deployed (Render / Railway / a VPS)
+
+- [ ] Production environment variables set
+- [ ] `NODE_ENV=production` so stack traces stop leaking
+- [ ] Backend deployed (Render, Railway or a VPS)
 - [ ] Frontend deployed (Vercel)
-- [ ] CORS configured for the real frontend domain
+- [ ] CORS locked to the real frontend domain
 - [ ] Atlas: IP access list, a database user with least privilege, backups enabled
 - [ ] Automated daily backup
 - [ ] Test the whole flow on the deployed version, not just locally
 
+### Done when
+
+- [ ] An error response in production contains no stack trace or file paths
+- [ ] A request from an unknown origin is rejected
+
 ---
 
-## Phase 17 - Before Showing It To A Real Aarti
+## Phase 17 - Before Showing a Real Aarti
 
-- [ ] Create 50+ realistic records and check every report
-- [ ] Have someone else use it without you explaining anything
+### Tasks
+
+- [ ] Create 50 or more realistic records and check every report
+- [ ] Have someone else use it with no explanation from you
 - [ ] Check every number against a hand calculation
-- [ ] Make sure nothing crashes on empty states (no customers, no receipts)
+- [ ] Confirm nothing crashes on empty states (no customers, no receipts)
 - [ ] Write a one-page user guide in simple Urdu or Roman Urdu
 
----
+### Done when
 
-# RULES FOR THE WHOLE PROJECT
-
-1. **All calculations happen in the backend controller.** The frontend only displays.
-
-2. **Never hard delete a posted receipt or payment.** Cancel it and write a reversing
-   ledger entry. The customer already holds a printed copy.
-
-3. **Balance and ledger always move together.** One action, both updates, no exceptions.
-
-4. **Store money consistently.** Plain JS numbers lose precision on percentage maths.
-   Pick one approach and use it everywhere.
-
-5. **Test each phase in Postman before building the next.**
-
-6. **Commit after every working piece.** Small commits with clear messages.
-
----
-
-# CAN I CHANGE THE MODELS LATER?
-
-Mostly yes. MongoDB is flexible. Adding a new field is easy, old documents simply will
-not have it.
-
-**Easy to change later**
-- Adding a field
-- Adding a value to an enum
-- Adding an index
-- Renaming something you have not saved real data into yet
-
-**Hard to change later**
-- Relationship shape (what references what)
-- Splitting one collection into two after real data exists
-- Changing the meaning of a field you have already filled with data
-- Changing how money is stored
-
-So think carefully about structure, but do not freeze. Fixing something in week 3 is far
-better than living with it for the life of the project.
+- [ ] Someone who has never seen the app can record a receipt without asking you how
