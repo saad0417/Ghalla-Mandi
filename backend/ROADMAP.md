@@ -11,6 +11,24 @@ Build roadmap. MERN stack: MongoDB (Atlas), Express, React, Node.
 - Tick a box only when that piece is **tested and working**, not when the code is written.
 - Every phase ends with a **Done when** test. If it fails, do not move on.
 
+### The sequential rule
+
+**Never tick a box while an earlier unticked box sits above it.**
+
+If you are tempted to skip one, that is a signal to stop and look at why. Usually it
+means you are stuck on it and moving on feels easier. It is not. In this project almost
+every step feeds the next one, so a skipped box becomes a bug three phases later that
+takes a day to trace.
+
+If a box genuinely does not apply to your build, do not leave it blank. Strike it
+through and write why, so future you knows it was a decision and not an oversight:
+
+```
+- [x] ~~Cheque clearance status~~  (skipped: Aarti takes cash only)
+```
+
+Markdown cannot enforce this. It is a discipline, not a feature.
+
 **Ticking boxes:** install "Markdown All in One", put your cursor on the line, press `Alt+C`.
 Or type the `x` yourself. Split view with `Ctrl+K` then `V` gives you code on the left
 (tickable) and preview on the right.
@@ -375,8 +393,41 @@ better than living with it for the life of the project.
 - [x] `utils/ApiError.js` and `utils/ApiResponse.js`
 - [x] `utils/asyncHandler.js`
 - [x] `middlewares/error.middleware.js`
+- [x] A 404 catch-all before the error handler
 - [x] `app.use(errorHandler)` in `app.js`, **after all routes**
 - [x] A `/api/v1/health` route returning JSON
+- [x] Env variable check in `index.js`, after `dotenv.config()`, before `connectDB()`
+
+### The 404 catch-all
+
+A wrong URL is not a thrown error, so it never reaches your error handler. Express
+falls through to its own HTML 404 page. Add a catch-all second to last:
+
+```js
+app.use((req, res, next) => {
+  next(new ApiError(404, `Route not found: ${req.originalUrl}`));
+});
+
+app.use(errorHandler);   // still last
+```
+
+Use `next(err)` here, not `throw`, because this is not inside a route handler.
+
+### Env variable check
+
+Without it, a missing `JWT_SECRET` fails on the first login in production, not on boot.
+
+```js
+const required = ["MONGODB_URI", "JWT_SECRET"];
+if (process.env.NODE_ENV === "production") required.push("CORS_ORIGIN");
+
+const missing = required.filter(k => !process.env[k]);
+if (missing.length) throw new Error(`Missing env variables: ${missing.join(", ")}`);
+```
+
+Only list variables the app genuinely cannot run without. Anything with a `||` fallback
+stays out. `CORS_ORIGIN` is optional in dev (your localhost fallbacks cover it) but
+required in production.
 
 ### ApiError and errorHandler are two different files
 
@@ -447,20 +498,97 @@ src/
 
 **Goal:** get your CRUD pattern right on something that cannot go wrong.
 
+### Index reference for the whole project
+
+Add each of these in the phase that creates that model, not all at once. Listed here so
+you can see the full picture before writing your first schema.
+
+| Model | Index | Where to write it | Why |
+|---|---|---|---|
+| `users` | `email` unique | inline | login lookup + no duplicate accounts |
+| `banks` | `{ bankName: 1, branchCode: 1 }` unique | `.index()` | one record per bank branch |
+| `products` | `{ productName: 1, unitOfMeasurement: 1 }` unique | `.index()` | same crop allowed in two units |
+| `customers` | `customerCode` unique | inline | auto-generated, must not repeat |
+| `customers` | `cnicNumber` unique + sparse | inline | optional, but unique when present |
+| `customers` | `{ name: 1 }` | `.index()` | customer search |
+| `inventoryMovements` | `receiptNumber` unique | inline | auto-generated |
+| `inventoryMovements` | `{ customer: 1, date: -1 }` | `.index()` | customer receipt history, newest first |
+| `inventoryMovements` | `{ paymentStatus: 1 }` | `.index()` | outstanding receipts report |
+| `loans` | `loanNumber` unique | inline | auto-generated |
+| `loans` | `{ customer: 1, status: 1 }` | `.index()` | outstanding loans per customer |
+| `payments` | `voucherNumber` unique | inline | auto-generated |
+| `payments` | `{ customer: 1, date: -1 }` | `.index()` | payment history, newest first |
+| `ledgerEntries` | `{ customer: 1, date: 1 }` | `.index()` | the ledger screen, oldest first |
+
+### How to write them
+
+**Inline** works for a single field:
+
+```js
+email: { type: String, unique: true }
+cnicNumber: { type: String, unique: true, sparse: true }
+name: { type: String, index: true }
+```
+
+**`.index()`** is required for two or more fields, and takes options as a second
+argument:
+
+```js
+schema.index({ fieldA: 1, fieldB: -1 });
+schema.index({ fieldA: 1, fieldB: 1 }, { unique: true });
+```
+
+### Three things to understand
+
+**`unique` IS an index.** MongoDB has no separate constraint mechanism. Writing
+`unique: true` creates a unique index, which is why the check is fast and why you get
+the lookup speed for free.
+
+**`sparse` skips documents where the field is missing or null.** Without it, the second
+customer with no CNIC is rejected as a duplicate of the first `null`. Only needed when a
+field is both optional and unique.
+
+**Field order in a compound index is a phone book.** `{ bankName: 1, branchCode: 1 }` is
+sorted by bankName, then branchCode. You can look up by bankName alone, or by both, but
+never by branchCode alone, the same way you cannot use a phone book to find someone by
+first name.
+
+Put the field you match exactly first, then the field you sort or range on. `1` is
+ascending, `-1` descending, and the direction should match your `.sort()`.
+
 ### Tasks
 
 **Bank**
-- [ ] `Bank` model: bankName (unique), shortName, branchName, branchCode, isActive, createdBy
-- [ ] Create
-- [ ] List (with search by name)
-- [ ] Get one
-- [ ] Update
-- [ ] Soft delete (`isActive: false`, never actually delete)
+- [ ] `Bank` model: bankName (required), shortName, branchName, branchCode (required),
+      isActive, createdBy
+- [ ] `bankSchema.index({ bankName: 1, branchCode: 1 }, { unique: true })`
+- [ ] Controllers: `createBank`, `getBanks`, `getBankById`, `updateBank`, `deactivateBank`
+- [ ] Routes wired up
+- [ ] Tested in Postman
 
 **Product**
-- [ ] `Product` model: productName (unique), unitOfMeasurement (enum), kgPerUnit (nullable),
-      isActive, createdBy
-- [ ] Same five endpoints
+- [ ] `Product` model: productName (required), unitOfMeasurement (enum),
+      kgPerUnit (nullable), isActive, createdBy
+- [ ] `productSchema.index({ productName: 1, unitOfMeasurement: 1 }, { unique: true })`
+- [ ] Controllers: `createProduct`, `getProducts`, `getProductById`, `updateProduct`,
+      `deactivateProduct`
+- [ ] Routes wired up
+- [ ] Tested in Postman
+
+### Why bankName is not unique on its own
+
+A bank has many branches. `banks` is a list of bank **branches**, so "HBL, Gulberg" and
+"HBL, Model Town" are two separate records. Unique on `bankName` alone would block the
+second one.
+
+The compound index makes the **pair** unique instead. Both fields must be required, or
+two records with the same bank and no branchCode will still collide.
+
+### Why productName is not unique on its own
+
+If wheat is sold both by maund and by 50kg bag, you need two product records named
+"Wheat". The compound index with `unitOfMeasurement` allows that while still rejecting a
+true duplicate.
 
 ### Enum
 
@@ -472,12 +600,14 @@ src/
 
 No references to other collections, nothing to go wrong. Once this pattern works, you
 copy it for everything else in the project. This phase teaches you Mongoose schemas,
-enums, unique indexes, controller structure, consistent API responses and Postman.
+enums, indexes, controller structure, consistent API responses and Postman.
 
 ### Done when
 
 - [ ] All ten endpoints tested in Postman
-- [ ] A duplicate `bankName` is rejected by the database, not just by your code
+- [ ] "HBL / Gulberg" and "HBL / Model Town" can both be saved
+- [ ] A second "HBL / Gulberg" is rejected **by the database**, not just your code
+- [ ] "Wheat / MAUND" and "Wheat / BAG_50KG" can both be saved
 
 ---
 

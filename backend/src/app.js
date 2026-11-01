@@ -34,11 +34,12 @@ app.use(cookieParser())
 // Routes goes here...
 // Import Routes
 import healthCheckRouter from './routes/healthcheck.routes.js';
-
+import bankRouter from './routes/bank.routes.js'
 
 
 // Routes Decleration
 app.use("/api/v1/healthcheck", healthCheckRouter)
+app.use("/api/v1/bank", bankRouter)
 
 
 
