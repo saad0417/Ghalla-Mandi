@@ -14,7 +14,8 @@ const bankSchema = new Schema({
     },
     branchCode:{
         type: String,
-        required: true
+        required: true,
+        match: [/^\d{4}$/, "Branch code must be exactly 4 digits"]
     },
     isActive:{
         type: Boolean,

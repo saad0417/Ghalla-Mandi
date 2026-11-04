@@ -559,12 +559,12 @@ ascending, `-1` descending, and the direction should match your `.sort()`.
 ### Tasks
 
 **Bank**
-- [ ] `Bank` model: bankName (required), shortName, branchName, branchCode (required),
+- [x] `Bank` model: bankName (required), shortName, branchName, branchCode (required),
       isActive, createdBy
-- [ ] `bankSchema.index({ bankName: 1, branchCode: 1 }, { unique: true })`
-- [ ] Controllers: `createBank`, `getBanks`, `getBankById`, `updateBank`, `deactivateBank`
-- [ ] Routes wired up
-- [ ] Tested in Postman
+- [x] `bankSchema.index({ bankName: 1, branchCode: 1 }, { unique: true })`
+- [x] Controllers: `createBank`, `getBanks`, `getBankById`, `updateBank`, `deactivateBank`
+- [x] Routes wired up
+- [x] Tested in Postman
 
 **Product**
 - [ ] `Product` model: productName (required), unitOfMeasurement (enum),
