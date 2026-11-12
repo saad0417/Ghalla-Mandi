@@ -3,7 +3,6 @@ import {ApiError} from '../utils/ApiError.js'
 import {ApiResponse} from '../utils/ApiResponse.js'
 import mongoose, {isValidObjectId} from 'mongoose'
 import { Bank } from '../models/bank.model.js'
-import { json } from 'express'
 
 
 const createBank = asyncHandler(async (req,res) => {
@@ -71,15 +70,16 @@ const getAllBanks = asyncHandler(async (req, res) => {
 const getBankbyId = asyncHandler(async (req, res) => {
     const { bankId } = req.params
 
+    if(!bankId?.trim())
+    {
+        throw new ApiError(400, "Bank Id is missing!")
+    }
+
     if(!isValidObjectId(bankId))
     {
         throw new ApiError(400, "Invalid bank Id!")
     }
 
-    if(!bankId)
-    {
-        throw new ApiError(400, "Bank Id is missing!")
-    }
 
     const bank = await Bank.findById(bankId)
 

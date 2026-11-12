@@ -4,7 +4,8 @@ const bankSchema = new Schema({
     
     bankName:{
         type: String,
-        required: [true, "Bank name is required!"]
+        required: [true, "Bank name is required!"],
+        trim: true
     },
     shortName:{
         type: String,
