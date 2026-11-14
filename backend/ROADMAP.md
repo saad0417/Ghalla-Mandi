@@ -567,13 +567,13 @@ ascending, `-1` descending, and the direction should match your `.sort()`.
 - [x] Tested in Postman
 
 **Product**
-- [ ] `Product` model: productName (required), unitOfMeasurement (enum),
+- [x] `Product` model: productName (required), unitOfMeasurement (enum),
       kgPerUnit (nullable), isActive, createdBy
-- [ ] `productSchema.index({ productName: 1, unitOfMeasurement: 1 }, { unique: true })`
-- [ ] Controllers: `createProduct`, `getProducts`, `getProductById`, `updateProduct`,
+- [x] `productSchema.index({ productName: 1, unitOfMeasurement: 1 }, { unique: true })`
+- [x] Controllers: `createProduct`, `getProducts`, `getProductById`, `updateProduct`,
       `deactivateProduct`
-- [ ] Routes wired up
-- [ ] Tested in Postman
+- [x] Routes wired up
+- [x] Tested in Postman
 
 ### Why bankName is not unique on its own
 
@@ -604,10 +604,10 @@ enums, indexes, controller structure, consistent API responses and Postman.
 
 ### Done when
 
-- [ ] All ten endpoints tested in Postman
-- [ ] "HBL / Gulberg" and "HBL / Model Town" can both be saved
-- [ ] A second "HBL / Gulberg" is rejected **by the database**, not just your code
-- [ ] "Wheat / MAUND" and "Wheat / BAG_50KG" can both be saved
+- [x] All ten endpoints tested in Postman
+- [x] "HBL / Gulberg" and "HBL / Model Town" can both be saved
+- [x] A second "HBL / Gulberg" is rejected **by the database**, not just your code
+- [x] "Wheat / MAUND" and "Wheat / BAG_50KG" can both be saved
 
 ---
 
@@ -618,25 +618,25 @@ enums, indexes, controller structure, consistent API responses and Postman.
 ### Tasks
 
 **Auth**
-- [ ] `User` model: name, email (unique), passwordHash, phone, role (enum),
+- [x] `User` model: name, email (unique), passwordHash, phone, role (enum),
       permissions (enum array), isActive, refreshToken, lastLoginAt, customer (nullable)
-- [ ] Hash password with bcrypt in a `pre('save')` hook, **only when password changed**
-- [ ] Schema method `isPasswordCorrect()`
-- [ ] Schema methods `generateAccessToken()`, `generateRefreshToken()`
-- [ ] Login, returns access token and sets a refresh token cookie
-- [ ] Logout
-- [ ] Refresh token
-- [ ] `verifyJWT` middleware
-- [ ] Apply `verifyJWT` to the Phase 1 routes
+- [x] Hash password with bcrypt in a `pre('save')` hook, **only when password changed**
+- [x] Schema method `isPasswordCorrect()`
+- [x] Schema methods `generateAccessToken()`, `generateRefreshToken()`
+- [x] Login, returns access token and sets a refresh token cookie
+- [x] Logout
+- [x] Refresh token
+- [x] `verifyJWT` middleware
+- [x] Apply `verifyJWT` to the Phase 1 routes
 
 **User management**
-- [ ] Seed script creating the first SUPER_ADMIN
-- [ ] Create user (protected, SUPER_ADMIN or AARTI only)
-- [ ] List users
-- [ ] Update user (name, phone, role, isActive)
-- [ ] Deactivate user (never delete, their `createdBy` records must survive)
-- [ ] Admin resets a user's password
-- [ ] User changes own password (must supply the current one)
+- [x] Seed script creating the first SUPER_ADMIN
+- [x] Create user (protected, SUPER_ADMIN or AARTI only)
+- [x] List users
+- [x] Update user (name, phone, role, isActive)
+- [x] Deactivate user (never delete, their `createdBy` records must survive)
+- [x] Admin resets a user's password
+- [x] User changes own password (must supply the current one)
 
 ### There is no public register endpoint
 
@@ -666,9 +666,9 @@ shape is right, but check `role` only. The `checkPermission` middleware comes in
 
 ### Done when
 
-- [ ] A protected route without a token returns 401
-- [ ] Login returns a token you can use on the Phase 1 routes
-- [ ] No route anywhere creates a user without authentication
+- [x] A protected route without a token returns 401
+- [x] Login returns a token you can use on the Phase 1 routes
+- [x] No route anywhere creates a user without authentication
 
 ---
 

@@ -3,7 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import jwt from "jsonwebtoken"
 
-// here in this middleware 'req' and 'next' is being used while 'res' is not being used so we can write '_' instead of it.
+// this middleware requires the user to be logged in.
 export const verifyJWT = asyncHandler(async (req, _, next) => {
 
     try {
@@ -35,19 +35,24 @@ export const verifyJWT = asyncHandler(async (req, _, next) => {
     }
 })
 
-export const optionalVerifyJWT = asyncHandler(async (req, _, next) => {
-    try {
-        const token = req.cookies?.accessToken || req.header("Authorization")?.replace("Bearer ", "");
-        if (!token) {
-            req.user = null;
-            return next();
-        }
-        const decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-        const user = await User.findById(decodedToken?._id).select("-password -refreshToken");
-        req.user = user || null;
-        next();
-    } catch (error) {
-        req.user = null;
-        next();
+export const checkPermission = (requiredPermission) => asyncHandler(async (req, res, next) => {
+
+    if (!req.user) 
+    {
+        throw new ApiError(401, "Unauthorized Request!");
     }
+
+    // SUPER_ADMIN has full access
+    if (req.user.role === "SUPER_ADMIN") 
+    {
+        return next();
+    }
+
+    // Check whether user has the required permission
+    if (!req.user.permissions.includes(requiredPermission)) 
+    {
+        throw new ApiError(403, "You don't have permission to perform this action!");
+    }
+
+    next();
 });

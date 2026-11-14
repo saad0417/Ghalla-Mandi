@@ -31,17 +31,27 @@ app.use(cookieParser())
 
 
 
+
 // Routes goes here...
 // Import Routes
 import healthCheckRouter from './routes/healthcheck.routes.js';
 import bankRouter from './routes/bank.routes.js'
 import productRouter from './routes/product.routes.js'
+import userRouter from './routes/user.routes.js'
+import authRouter from './routes/auth.routes.js'
+import { verifyJWT } from './middlewares/auth.middleware.js';
+
+
+app.use("/api/v1/auth", authRouter)
+
+app.use(verifyJWT)
 
 
 // Routes Decleration
 app.use("/api/v1/healthcheck", healthCheckRouter)
 app.use("/api/v1/bank", bankRouter)
 app.use("/api/v1/product", productRouter)
+app.use("/api/v1/user", userRouter)
 
 
 
