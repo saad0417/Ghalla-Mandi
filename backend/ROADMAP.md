@@ -678,9 +678,9 @@ shape is right, but check `role` only. The `checkPermission` middleware comes in
 
 ### Tasks
 
-- [ ] Define `securityChequeSchema` and `guarantorInfoSchema` at the top of
+- [x] Define `securityChequeSchema` and `guarantorInfoSchema` at the top of
       `customer.model.js` with `{ _id: false }`, do not export them
-- [ ] `Customer` model:
+- [x] `Customer` model:
   - customerCode (auto, unique), name, fatherName
   - cnicNumber (unique + sparse), cnicFrontImage, cnicBackImage
   - phoneNumbers (array), address
