@@ -40,6 +40,7 @@ import productRouter from './routes/product.routes.js'
 import userRouter from './routes/user.routes.js'
 import authRouter from './routes/auth.routes.js'
 import { verifyJWT } from './middlewares/auth.middleware.js';
+import customerRouter from './routes/customer.routes.js'
 
 
 app.use("/api/v1/auth", authRouter)
@@ -52,6 +53,7 @@ app.use("/api/v1/healthcheck", healthCheckRouter)
 app.use("/api/v1/bank", bankRouter)
 app.use("/api/v1/product", productRouter)
 app.use("/api/v1/user", userRouter)
+app.use("/api/v1/cust", customerRouter)
 
 
 

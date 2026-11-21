@@ -1,4 +1,4 @@
-import Counter from "../models/counter.model.js";
+import {Counter} from "../models/counter.model.js";
 
 const generateCode = async (type, prefix, session) => {
 

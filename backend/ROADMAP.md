@@ -689,7 +689,7 @@ shape is right, but check `role` only. The `checkPermission` middleware comes in
   - openingBalance, openingBalanceDate, currentBalance
   - securityCheques (array of SecurityCheque), guarantor (GuarantorInfo)
   - creditLimit, isActive, createdBy, updatedBy
-- [ ] `Counter` model and a `generateCode()` util for CUST-0001, CUST-0002...
+- [x] `Counter` model and a `generateCode()` util for CUST-0001, CUST-0002...
 - [ ] Create customer, setting `currentBalance = openingBalance`
 - [ ] List with search (name, CNIC, phone, code) and pagination
 - [ ] Get one
@@ -724,7 +724,6 @@ Real image uploads. Store a placeholder string like `"pending"`. Uploads come in
 
 ### Done when
 
-- [ ] Two customers with no CNIC can both be saved
 - [ ] Codes increment correctly and never repeat
 - [ ] Search finds a customer by partial name and by phone
 

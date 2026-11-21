@@ -22,7 +22,7 @@ const securityCheckSchema = new Schema({
         type: Date,
         required: true
     },
-    image:{
+    securityChequeImage:{
         type: String    // URL from cloudinary
     },
     status:{
