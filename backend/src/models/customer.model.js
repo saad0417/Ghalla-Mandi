@@ -40,7 +40,7 @@ const guarantorInfoSchema = new Schema({
     customer:{
         type: Schema.Types.ObjectId,
         ref: "Customer",
-        required: true,
+        required: [true, "Customer Id is required!"]
     },
     relation:{
         type: String,

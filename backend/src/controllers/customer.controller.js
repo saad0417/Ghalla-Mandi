@@ -31,13 +31,13 @@ const createCustomer = asyncHandler(async (req, res) => {
         
         if(!Array.isArray(phoneNumbers) || phoneNumbers.length === 0)
         {
-            throw new ApiError(400, "Phone numbers must be an array!")   
+            throw new ApiError(400, "Phone numbers must be an array(or is empty)!")   
         }
 
-        if (!guarantor || typeof guarantor !== "object") {
-        throw new ApiError(400, "Guarantor must be a valid object!");
+        if (!guarantor || typeof guarantor !== "object") 
+        {
+            throw new ApiError(400, "Guarantor must be a valid object!");
         }
-
         if (!guarantor.customer || !isValidObjectId(guarantor.customer)) {
             throw new ApiError(400, "Guarantor customer ID is invalid!");
         }
@@ -54,9 +54,9 @@ const createCustomer = asyncHandler(async (req, res) => {
 
         if(securityChecks !== undefined)
         {
-            if(!Array.isArray(securityChecks))
+            if(!Array.isArray(securityChecks) || securityChecks.length === 0)
             {
-                throw new ApiError(400, "Security check must be an array!")
+                throw new ApiError(400, "Security check must be an array(or is empty)!")
             }
 
             for(const check of securityChecks)
@@ -190,9 +190,8 @@ const createCustomer = asyncHandler(async (req, res) => {
     } 
     catch (error) 
     {
-
         if (session.inTransaction()) 
-            {
+        {
             await session.abortTransaction();
         }
 
@@ -204,7 +203,6 @@ const createCustomer = asyncHandler(async (req, res) => {
     }
     finally 
     {
-
         for (const files of Object.values(req.files || {})) {
             for (const file of files) {
                 await fs.unlink(file.path).catch(() => {});
@@ -214,6 +212,7 @@ const createCustomer = asyncHandler(async (req, res) => {
         await session.endSession();
     }
 })
+
 
 
 export {createCustomer}
