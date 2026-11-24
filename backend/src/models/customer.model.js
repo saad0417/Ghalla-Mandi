@@ -34,7 +34,7 @@ const securityCheckSchema = new Schema({
         type: String
     }
 
-}, {_id: false})
+})
 
 const guarantorInfoSchema = new Schema({
     customer:{
