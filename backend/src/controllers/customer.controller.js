@@ -716,9 +716,89 @@ const toggleCustomerActivation = asyncHandler(async (req, res) => {
     
 })
 
+
 const searchCustomer = asyncHandler(async (req, res) => {
 
-})
+    const search = req.query.search?.trim();
+    const normalizedSearch = search?.replace(/-/g, "");
+
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.max(Number(req.query.limit) || 10, 1);
+
+    const skip = (page - 1) * limit;
+
+
+    const filter = search
+    ? {
+        $or: [
+            { name: { $regex: search, $options: "i" } },
+            { phoneNumbers: { $regex: normalizedSearch, $options: "i" } },
+            {
+                $expr: {
+                    $regexMatch: {
+                        input: {
+                            $replaceAll: {
+                                input: "$cnicNumber",
+                                find: "-",
+                                replacement: ""
+                            }
+                        },
+                        regex: normalizedSearch,
+                        options: "i"
+                    }
+                }
+            },
+            {
+                $expr: {
+                    $regexMatch: {
+                        input: {
+                            $replaceAll: {
+                                input: { $ifNull: ["$customerCode", ""] },
+                                find: "-",
+                                replacement: ""
+                            }
+                        },
+                        regex: normalizedSearch,
+                        options: "i"
+                    }
+                }
+            }
+        ]
+    }
+    : {};
+
+    const totalCustomers = await Customer.countDocuments(filter);
+
+    const totalPages = Math.ceil(totalCustomers / limit);
+
+    const customers = await Customer.find(filter)
+        .skip(skip)
+        .limit(limit);
+
+    if (!customers.length) {
+        throw new ApiError(404, "No Customer Found!");
+    }
+
+    return res
+    .status(200)
+    .json(
+        new ApiResponse(
+            200,
+            {
+                customers,
+                pagination: {
+                    currentPage: page,
+                    totalPages,
+                    totalCustomers,
+                    limit
+                }
+            },
+            "Customers Fetched Successfully!"
+        )
+    );
+});
+
+
 
 export {
     createCustomer, 

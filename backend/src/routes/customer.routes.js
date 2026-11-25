@@ -3,6 +3,7 @@ import {
         createCustomer, 
         getAllCustomers, 
         getCustomerById, 
+        searchCustomer, 
         toggleCustomerActivation, 
         updateCnicImages, 
         updateCustomer,
@@ -43,5 +44,8 @@ router.route("/create-customer")
         ]),
         checkPermission("CUSTOMER_MANAGE"), 
         updateSecurityCheckImage)
+
+
+    router.route("/search-customers").get(checkPermission("CUSTOMER_VIEW"), searchCustomer)
 
 export default router;

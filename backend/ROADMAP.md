@@ -691,7 +691,7 @@ shape is right, but check `role` only. The `checkPermission` middleware comes in
   - creditLimit, isActive, createdBy, updatedBy
 - [x] `Counter` model and a `generateCode()` util for CUST-0001, CUST-0002...
 - [x] Create customer, setting `currentBalance = openingBalance`
-- [ ] List with search (name, CNIC, phone, code) and pagination
+- [x] List with search (name, CNIC, phone, code) and pagination
 - [x] Get one
 - [x] Update
 - [x] Deactivate (never delete)
@@ -725,7 +725,7 @@ Real image uploads. Store a placeholder string like `"pending"`. Uploads come in
 ### Done when
 
 - [x] Codes increment correctly and never repeat
-- [ ] Search finds a customer by partial name and by phone
+- [x] Search finds a customer by partial name and by phone
 
 ---
 
